@@ -1,0 +1,82 @@
+
+import RPi.GPIO as GPIO
+import requests
+from requests.auth import HTTPBasicAuth
+import json
+from picamera import PiCamera
+from time import sleep
+import datetime
+
+
+solenoid_pin = 11 # physical pining scheme
+led_pin = 13
+seconds = 60 # delay between each image sample
+
+def take_img():
+	'''
+		capture image and return the path of the image
+	'''
+	global led_pin
+	camera = PiCamera()
+    camera.resolution = (3280, 2464)
+	nowdate = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+	path = './img/image'+nowdate+'.jpg'
+	
+	GPIO.output(led_pin, GPIO.HIGH)
+	sleep(1)
+	camera.start_preview()
+	sleep(5)
+	camera.capture(path)
+	camera.stop_preview()
+	sleep(1)
+	GPIO.output(led_pin, GPIO.LOW)
+	camera.close()
+	return path
+
+GPIO.setmode(GPIO.BOARD)
+GPIO.setup(solenoid_pin,GPIO.OUT) # set as output pin
+GPIO.setup(led_pin,GPIO.OUT) # set as output pin
+
+GPIO.output(solenoid_pin, GPIO.LOW) # set default value to Low
+GPIO.output(led_pin, GPIO.LOW) # set default value to Low
+
+Bad = './img/Bad.jpg'
+good = './img/Good.jpg'
+image = good
+
+
+url = "https://gateway.watsonplatform.net/visual-recognition/api/v3/classify?version=2018-03-19"
+payload = {"threshold":0, "owners":"me"}
+key = 'IBM key goes here'
+
+while True:
+
+	# take image
+	image = take_img()
+	file = {"images_file":open(image, 'rb')}
+
+	# try used to verify that the post method is right
+	try:
+		resp = requests.post(url, data = payload, files = file,auth=HTTPBasicAuth('apikey', key))
+	except Exception as e:
+		print(e)
+
+	# if the response is good
+	if resp.status_code == 200:
+		data = resp.json()
+		score = data["images"][0]["classifiers"][0]["classes"][0]["score"]
+		# score= data["images"][0]["classifiers"][1]["classes"][0]["score"]
+		
+		if score < 0.5:
+			GPIO.output(solenoid_pin, GPIO.HIGH)
+			print("Score is ",score)
+			print("Solenoid Valve is Open!")
+
+		else:
+			print("Score is above 50%")
+			print("Solenoid Valve is Closed!")
+	else:
+		print("Bad Response!")
+
+	sleep(seconds) # repeat after seconds
+# print(resp.text)
